@@ -1,7 +1,5 @@
 package com.foodapp.data.repository
 
-package com.foodapp.data.repository
-
 import com.foodapp.data.model.CategoryUi
 import com.foodapp.data.model.MealDetailUi
 import com.foodapp.data.model.MealUi
