@@ -1,8 +1,5 @@
 package com.foodapp.data.model
 
-package com.foodapp.data.model
-
-
 // Réponses de l'API
 
 data class MealResponse(
