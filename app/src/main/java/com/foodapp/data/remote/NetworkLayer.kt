@@ -1,5 +1,7 @@
 package com.foodapp.data.remote
 
+package com.foodapp.data.remote
+
 import com.foodapp.data.model.CategoryResponse
 import com.foodapp.data.model.MealResponse
 import okhttp3.OkHttpClient
