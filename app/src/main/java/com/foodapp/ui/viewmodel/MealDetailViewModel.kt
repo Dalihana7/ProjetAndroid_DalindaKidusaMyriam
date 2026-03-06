@@ -1,14 +1,14 @@
 package com.foodapp.ui.viewmodel
 
-package your.package.ui.viewmodel
-
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.flow.*
+import com.foodapp.data.model.MealDetailUi
+import com.foodapp.data.repository.MealRepository
+import com.foodapp.ui.state.UiState
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import your.package.domain.model.MealDetailUi
-import your.package.domain.repository.MealRepository
-import your.package.ui.state.UiState
 
 class MealDetailViewModel(
     private val repository: MealRepository
@@ -20,9 +20,17 @@ class MealDetailViewModel(
     fun load(id: String) {
         viewModelScope.launch {
             _state.value = UiState.Loading
-            runCatching { repository.getMealDetail(id) }
-                .onSuccess { _state.value = UiState.Success(it) }
-                .onFailure { _state.value = UiState.Error(it.message ?: "Erreur réseau") }
+            runCatching { repository.getMealById(id) }
+                .onSuccess { detail ->
+                    if (detail == null) {
+                        _state.value = UiState.Error("Recette introuvable")
+                    } else {
+                        _state.value = UiState.Success(detail)
+                    }
+                }
+                .onFailure { e ->
+                    _state.value = UiState.Error(e.message ?: "Erreur réseau")
+                }
         }
     }
 }

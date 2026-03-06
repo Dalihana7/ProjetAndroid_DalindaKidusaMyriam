@@ -1,117 +1,124 @@
 package com.foodapp.ui.viewmodel
 
-package your.package.ui.viewmodel
-
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.flow.*
+import com.foodapp.data.model.CategoryUi
+import com.foodapp.data.model.MealUi
+import com.foodapp.data.repository.MealRepository
+import com.foodapp.ui.state.MealListUiData
+import com.foodapp.ui.state.UiState
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import your.package.domain.model.MealUi
-import your.package.domain.repository.MealRepository
-import your.package.ui.state.UiState
-
-data class MealListUiData(
-    val categories: List<String>,
-    val selectedCategory: String?,
-    val query: String,
-    val meals: List<MealUi>,
-    val canLoadMore: Boolean
-)
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 
 class MealListViewModel(
     private val repository: MealRepository,
     private val pageSize: Int = 30
 ) : ViewModel() {
 
-    private val _query = MutableStateFlow("")
-    private val _selectedCategory = MutableStateFlow<String?>(null)
-
     private var allMeals: List<MealUi> = emptyList()
     private var currentPage = 0
 
-    private val _state = MutableStateFlow<UiState<MealListUiData>>(UiState.Loading)
-    val state: StateFlow<UiState<MealListUiData>> = _state.asStateFlow()
+    private var query: String = ""
+    private var selectedCategory: String? = null
+    private var categories: List<CategoryUi> = emptyList()
+
+    private var mealsJob: Job? = null
+    private var categoriesJob: Job? = null
+
+    private val _state =
+        MutableStateFlow<UiState<MealListUiData>>(UiState.Loading)
+
+    val state: StateFlow<UiState<MealListUiData>> = _state
 
     fun loadInitial() {
-        viewModelScope.launch {
-            _state.value = UiState.Loading
-            runCatching {
-                val cats = repository.getCategories().map { it.name }
-                allMeals = repository.searchMealsByName("")
-                currentPage = 0
-                buildSuccess(cats)
-            }.onFailure { e ->
-                _state.value = UiState.Error(e.message ?: "Erreur inconnue")
-            }
-        }
+        _state.value = UiState.Loading
+        collectCategories()
+        collectMealsFlow()
     }
 
     fun onQueryChange(newQuery: String) {
-        _query.value = newQuery
-        refreshMeals()
+        query = newQuery
+        selectedCategory = null
+        collectMealsFlow()
     }
 
     fun onCategorySelected(category: String?) {
-        _selectedCategory.value = category
-        refreshMeals()
+        selectedCategory = category
+        query = ""
+        collectMealsFlow()
     }
 
     fun loadNextPage() {
-        val nextSize = (currentPage + 2) * pageSize
-        if (nextSize <= allMeals.size) {
+        val nextCount = (currentPage + 2) * pageSize
+        if (nextCount <= allMeals.size) {
             currentPage++
-            val current = _state.value
-            if (current is UiState.Success) {
-                _state.value = UiState.Success(current.data.copy(
-                    meals = allMeals.take((currentPage + 1) * pageSize),
-                    canLoadMore = allMeals.size > (currentPage + 1) * pageSize
-                ))
-            }
+            emitSuccess()
         }
     }
 
-    fun retry() = refreshMeals(force = true)
-
-    private fun refreshMeals(force: Boolean = false) {
+    fun retry() {
         viewModelScope.launch {
-            val previousCats = (state.value as? UiState.Success)?.data?.categories ?: emptyList()
             _state.value = UiState.Loading
-
-            runCatching {
-                val q = _query.value.trim()
-                val cat = _selectedCategory.value
-
-                allMeals = when {
-                    cat != null -> repository.getMealsByCategory(cat)
-                    else -> repository.searchMealsByName(q)
-                }
-
-                currentPage = 0
-                val mealsPage = allMeals.take(pageSize)
-
-                UiState.Success(
-                    MealListUiData(
-                        categories = previousCats,
-                        selectedCategory = cat,
-                        query = q,
-                        meals = mealsPage,
-                        canLoadMore = allMeals.size > pageSize
-                    )
-                )
-            }.onSuccess { _state.value = it }
-                .onFailure { e -> _state.value = UiState.Error(e.message ?: "Erreur réseau") }
+            repository.refreshCategories()
+            repository.refreshMeals()
+            collectCategories()
+            collectMealsFlow()
         }
     }
 
-    private fun buildSuccess(categories: List<String>) {
-        val mealsPage = allMeals.take(pageSize)
+    private fun collectCategories() {
+        categoriesJob?.cancel()
+        categoriesJob = viewModelScope.launch {
+            repository.getCategories()
+                .catch { /* pas bloquant */ }
+                .collectLatest { cats ->
+                    categories = cats
+                    val cur = _state.value
+                    if (cur is UiState.Success) {
+                        _state.value = UiState.Success(cur.data.copy(categories = categories))
+                    }
+                }
+        }
+    }
+
+    private fun collectMealsFlow() {
+        mealsJob?.cancel()
+        mealsJob = viewModelScope.launch {
+            _state.value = UiState.Loading
+            currentPage = 0
+
+            val flow = when (val cat = selectedCategory) {
+                null -> {
+                    if (query.isBlank()) repository.getAllMeals()
+                    else repository.searchMeals(query)
+                }
+                else -> repository.getMealsByCategory(cat)
+            }
+
+            flow
+                .catch { e ->
+                    _state.value = UiState.Error(e.message ?: "Erreur réseau")
+                }
+                .collectLatest { meals ->
+                    allMeals = meals
+                    emitSuccess()
+                }
+        }
+    }
+
+    private fun emitSuccess() {
+        val visible = allMeals.take((currentPage + 1) * pageSize)
         _state.value = UiState.Success(
             MealListUiData(
                 categories = categories,
-                selectedCategory = _selectedCategory.value,
-                query = _query.value,
-                meals = mealsPage,
-                canLoadMore = allMeals.size > pageSize
+                selectedCategory = selectedCategory,
+                query = query,
+                meals = visible,
+                canLoadMore = visible.size < allMeals.size
             )
         )
     }
