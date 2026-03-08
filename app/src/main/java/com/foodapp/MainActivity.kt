@@ -5,83 +5,153 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.*
-import com.foodapp.data.model.CategoryUi
-import com.foodapp.data.model.MealDetailUi
-import com.foodapp.data.model.MealUi
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import com.foodapp.data.local.AppDatabase
+import com.foodapp.data.remote.RetrofitClient
+import com.foodapp.data.repository.MealRepositoryImpl
 import com.foodapp.ui.Screen
 import com.foodapp.ui.screens.MealDetailScreen
 import com.foodapp.ui.screens.MealListScreen
 import com.foodapp.ui.screens.SplashScreen
+import com.foodapp.ui.state.UiState
 import com.foodapp.ui.theme.FoodAppTheme
+import com.foodapp.ui.viewmodel.MealDetailViewModel
+import com.foodapp.ui.viewmodel.MealListViewModel
+import com.foodapp.worker.RefreshMealsWorker
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val request = PeriodicWorkRequestBuilder<RefreshMealsWorker>(
+            24, TimeUnit.HOURS
+        ).build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "refresh_meals",
+            ExistingPeriodicWorkPolicy.KEEP,
+            request
+        )
+
+        val db = AppDatabase.getInstance(this)
+        val api = RetrofitClient.apiService
+        val repository = MealRepositoryImpl(api, db)
+
+        val listViewModel = MealListViewModel(repository)
+        val detailViewModel = MealDetailViewModel(repository)
+
         setContent {
             FoodAppTheme {
-                AppNavigation()
+                AppNavigation(listViewModel, detailViewModel)
             }
         }
     }
 }
 
 @Composable
-fun AppNavigation() {
+fun AppNavigation(
+    listViewModel: MealListViewModel,
+    detailViewModel: MealDetailViewModel
+) {
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Splash) }
 
-    // Données mock pour tester l'UI en attendant Kidusa
-    val mockMeals = listOf(
-        MealUi("1", "Spaghetti Bolognese", "https://www.themealdb.com/images/media/meals/sutysw1468247559.jpg", "Pasta"),
-        MealUi("2", "Chicken Curry", "https://www.themealdb.com/images/media/meals/wyxwsp1486979827.jpg", "Chicken"),
-        MealUi("3", "Beef Tacos", "https://www.themealdb.com/images/media/meals/basvrp1493160694.jpg", "Beef"),
-        MealUi("4", "Caesar Salad", "https://www.themealdb.com/images/media/meals/qi33651565192851.jpg", "Vegetarian"),
-        MealUi("5", "Pad Thai", "https://www.themealdb.com/images/media/meals/uuuspp1511297945.jpg", "Chicken"),
-    )
+    val listState by listViewModel.state.collectAsStateWithLifecycle()
+    val detailState by detailViewModel.state.collectAsStateWithLifecycle()
 
-    val mockCategories = listOf(
-        CategoryUi("1", "Beef", ""),
-        CategoryUi("2", "Chicken", ""),
-        CategoryUi("3", "Pasta", ""),
-        CategoryUi("4", "Vegetarian", ""),
-    )
-
-    val mockDetail = MealDetailUi(
-        id = "1",
-        title = "Spaghetti Bolognese",
-        imageUrl = "https://www.themealdb.com/images/media/meals/sutysw1468247559.jpg",
-        category = "Pasta",
-        area = "Italian",
-        instructions = "Cuire les pâtes. Préparer la sauce bolognese. Mélanger et servir.",
-        ingredients = listOf("500g Spaghetti", "300g Bœuf haché", "2 Tomates", "1 Oignon", "Ail", "Huile d'olive")
-    )
-
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        listViewModel.loadInitial()
+    }
 
     when (currentScreen) {
         is Screen.Splash -> {
             SplashScreen(onSplashFinished = { currentScreen = Screen.MealList })
         }
         is Screen.MealList -> {
-            MealListScreen(
-                mealsState = UiState.Success(mockMeals),
-                categories = mockCategories,
-                selectedCategory = selectedCategory,
-                searchQuery = searchQuery,
-                onSearchQueryChange = { searchQuery = it },
-                onCategorySelected = { selectedCategory = it },
-                onMealClick = { currentScreen = Screen.MealDetail(it) },
-                onRetry = {},
-                onLoadMore = {}
-            )
+            when (val state = listState) {
+                is UiState.Loading -> {
+                    MealListScreen(
+                        mealsState = com.foodapp.UiState.Loading,
+                        categories = emptyList(),
+                        selectedCategory = null,
+                        searchQuery = "",
+                        onSearchQueryChange = { listViewModel.onQueryChange(it) },
+                        onCategorySelected = { listViewModel.onCategorySelected(it) },
+                        onMealClick = {
+                            currentScreen = Screen.MealDetail(it)
+                            detailViewModel.load(it)
+                        },
+                        onRetry = { listViewModel.retry() },
+                        onLoadMore = { listViewModel.loadNextPage() }
+                    )
+                }
+                is UiState.Error -> {
+                    MealListScreen(
+                        mealsState = com.foodapp.UiState.Error(state.message),
+                        categories = emptyList(),
+                        selectedCategory = null,
+                        searchQuery = "",
+                        onSearchQueryChange = { listViewModel.onQueryChange(it) },
+                        onCategorySelected = { listViewModel.onCategorySelected(it) },
+                        onMealClick = {
+                            currentScreen = Screen.MealDetail(it)
+                            detailViewModel.load(it)
+                        },
+                        onRetry = { listViewModel.retry() },
+                        onLoadMore = { listViewModel.loadNextPage() }
+                    )
+                }
+                is UiState.Success -> {
+                    MealListScreen(
+                        mealsState = com.foodapp.UiState.Success(state.data.meals),
+                        categories = state.data.categories,
+                        selectedCategory = state.data.selectedCategory,
+                        searchQuery = state.data.query,
+                        onSearchQueryChange = { listViewModel.onQueryChange(it) },
+                        onCategorySelected = { listViewModel.onCategorySelected(it) },
+                        onMealClick = {
+                            currentScreen = Screen.MealDetail(it)
+                            detailViewModel.load(it)
+                        },
+                        onRetry = { listViewModel.retry() },
+                        onLoadMore = { listViewModel.loadNextPage() }
+                    )
+                }
+            }
         }
         is Screen.MealDetail -> {
-            MealDetailScreen(
-                mealState = UiState.Success(mockDetail),
-                onBack = { currentScreen = Screen.MealList },
-                onRetry = {}
-            )
+            when (val state = detailState) {
+                is UiState.Loading -> {
+                    MealDetailScreen(
+                        mealState = com.foodapp.UiState.Loading,
+                        onBack = { currentScreen = Screen.MealList },
+                        onRetry = {
+                            detailViewModel.load((currentScreen as Screen.MealDetail).mealId)
+                        }
+                    )
+                }
+                is UiState.Error -> {
+                    MealDetailScreen(
+                        mealState = com.foodapp.UiState.Error(state.message),
+                        onBack = { currentScreen = Screen.MealList },
+                        onRetry = {
+                            detailViewModel.load((currentScreen as Screen.MealDetail).mealId)
+                        }
+                    )
+                }
+                is UiState.Success -> {
+                    MealDetailScreen(
+                        mealState = com.foodapp.UiState.Success(state.data),
+                        onBack = { currentScreen = Screen.MealList },
+                        onRetry = {
+                            detailViewModel.load((currentScreen as Screen.MealDetail).mealId)
+                        }
+                    )
+                }
+            }
         }
     }
 }
