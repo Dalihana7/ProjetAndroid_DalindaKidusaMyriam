@@ -74,7 +74,7 @@ fun AppNavigation(
             when (val state = listState) {
                 is UiState.Loading -> {
                     MealListScreen(
-                        mealsState = com.foodapp.UiState.Loading,
+                        mealsState = UiState.Loading,
                         categories = emptyList(),
                         selectedCategory = null,
                         searchQuery = "",
@@ -90,7 +90,7 @@ fun AppNavigation(
                 }
                 is UiState.Error -> {
                     MealListScreen(
-                        mealsState = com.foodapp.UiState.Error(state.message),
+                        mealsState = UiState.Error(state.message),
                         categories = emptyList(),
                         selectedCategory = null,
                         searchQuery = "",
@@ -106,7 +106,7 @@ fun AppNavigation(
                 }
                 is UiState.Success -> {
                     MealListScreen(
-                        mealsState = com.foodapp.UiState.Success(state.data.meals),
+                        mealsState = UiState.Success(state.data.meals),
                         categories = state.data.categories,
                         selectedCategory = state.data.selectedCategory,
                         searchQuery = state.data.query,
@@ -126,7 +126,7 @@ fun AppNavigation(
             when (val state = detailState) {
                 is UiState.Loading -> {
                     MealDetailScreen(
-                        mealState = com.foodapp.UiState.Loading,
+                        mealState = UiState.Loading,
                         onBack = { currentScreen = Screen.MealList },
                         onRetry = {
                             detailViewModel.load((currentScreen as Screen.MealDetail).mealId)
@@ -135,7 +135,7 @@ fun AppNavigation(
                 }
                 is UiState.Error -> {
                     MealDetailScreen(
-                        mealState = com.foodapp.UiState.Error(state.message),
+                        mealState = UiState.Error(state.message),
                         onBack = { currentScreen = Screen.MealList },
                         onRetry = {
                             detailViewModel.load((currentScreen as Screen.MealDetail).mealId)
@@ -144,7 +144,7 @@ fun AppNavigation(
                 }
                 is UiState.Success -> {
                     MealDetailScreen(
-                        mealState = com.foodapp.UiState.Success(state.data),
+                        mealState = UiState.Success(state.data),
                         onBack = { currentScreen = Screen.MealList },
                         onRetry = {
                             detailViewModel.load((currentScreen as Screen.MealDetail).mealId)

@@ -24,7 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.foodapp.UiState
+import com.foodapp.ui.state.UiState
 import com.foodapp.data.model.CategoryUi
 import com.foodapp.data.model.MealUi
 import com.foodapp.ui.AccentGold

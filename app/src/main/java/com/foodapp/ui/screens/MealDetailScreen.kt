@@ -24,7 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.foodapp.UiState
+import com.foodapp.ui.state.UiState
 import com.foodapp.data.model.MealDetailUi
 
 @Composable
